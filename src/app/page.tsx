@@ -1,69 +1,101 @@
-import Image from "next/image";
+import { query } from "@/lib/apollo/client";
+import {
+    GetCharactersDocument,
+    GetCharacterDetailDocument,
+    type GetCharacterDetailQuery,
+} from "@/graphql/generated/graphql";
+import { fetchCharacters } from "./actions/characters";
+import CharacterListContainer from "@/components/characters/CharacterListContainer";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+type Film = NonNullable<
+    NonNullable<GetCharacterDetailQuery["allFilms"]>["films"]
+>[number];
+
+function getFilmsForCharacter(
+    data: GetCharacterDetailQuery,
+    characterId: string
+): NonNullable<Film>[] {
+    const allFilms = data.allFilms?.films;
+    if (!allFilms) return [];
+
+    return allFilms.filter((film): film is NonNullable<Film> => {
+        if (!film) return false;
+        const characters = film.characterConnection?.characters;
+        if (!characters) return false;
+        return characters.some((c) => c?.id === characterId);
+    });
+}
+
+interface SearchParams {
+    [key: string]: string | string[] | undefined;
+}
+
+export default async function Home({
+    searchParams,
+}: {
+    searchParams: Promise<SearchParams>;
+}) {
+    const sp = await searchParams;
+    const characterParam = typeof sp.character === "string" ? sp.character : undefined;
+    const decodedCharacterId = characterParam ? decodeURIComponent(characterParam) : undefined;
+
+    // Fetch list and detail in parallel if character param exists
+    const [charactersResult, detailResult] = await Promise.all([
+        query({
+            query: GetCharactersDocument,
+            variables: { first: 10 },
+        }),
+        decodedCharacterId
+            ? query({ query: GetCharacterDetailDocument })
+            : Promise.resolve(null),
+    ]);
+
+    const charactersData = charactersResult.data;
+
+    if (!charactersData) {
+        throw new Error("No se pudieron cargar los personajes");
+    }
+
+    let activePerson = null;
+    let activeFilms: NonNullable<Film>[] = [];
+    let notFound = false;
+
+    if (decodedCharacterId && detailResult?.data) {
+        activePerson =
+            detailResult.data.allPeople?.people?.find(
+                (p) => p?.id === decodedCharacterId
+            ) ?? null;
+
+        if (activePerson) {
+            activeFilms = getFilmsForCharacter(detailResult.data, decodedCharacterId);
+        } else {
+            notFound = true;
+        }
+    }
+
+    return (
+        <div
+            style={{
+                minHeight: "100vh",
+                background: "#f5f5f5",
+            }}
+        >
+            <div
+                style={{
+                    maxWidth: 1200,
+                    width: "100%",
+                    margin: "0 auto",
+                    padding: "32px 24px",
+                }}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+                <CharacterListContainer
+                    initialData={charactersData}
+                    fetchCharacters={fetchCharacters}
+                    activePerson={activePerson}
+                    activeFilms={activeFilms}
+                    activeNotFound={notFound}
+                />
+            </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+    );
 }
