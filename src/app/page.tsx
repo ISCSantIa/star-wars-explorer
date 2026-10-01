@@ -39,8 +39,8 @@ export default async function Home({
     const characterParam = typeof sp.character === "string" ? sp.character : undefined;
     const decodedCharacterId = characterParam ? decodeURIComponent(characterParam) : undefined;
 
-    // Fetch list and detail in parallel if character param exists
-    const [charactersResult, detailResult] = await Promise.all([
+    // Fetch list, detail, and all characters in parallel
+    const [charactersResult, detailResult, allCharactersResult] = await Promise.all([
         query({
             query: GetCharactersDocument,
             variables: { first: 10 },
@@ -48,6 +48,10 @@ export default async function Home({
         decodedCharacterId
             ? query({ query: GetCharacterDetailDocument })
             : Promise.resolve(null),
+        query({
+            query: GetCharactersDocument,
+            variables: { first: 100 },
+        }),
     ]);
 
     const charactersData = charactersResult.data;
@@ -73,6 +77,8 @@ export default async function Home({
         }
     }
 
+    const allCharacters = allCharactersResult.data?.allPeople?.people ?? [];
+
     return (
         <div
             style={{
@@ -94,6 +100,7 @@ export default async function Home({
                     activePerson={activePerson}
                     activeFilms={activeFilms}
                     activeNotFound={notFound}
+                    allCharacters={allCharacters as NonNullable<typeof allCharacters>[number][]}
                 />
             </div>
         </div>

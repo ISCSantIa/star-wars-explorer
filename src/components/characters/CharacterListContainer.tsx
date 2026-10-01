@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useTransition } from "react";
-import { Typography, Flex } from "antd";
+import { useState, useCallback, useTransition, useEffect } from "react";
+import { Typography, Flex, Input } from "antd";
 import CharacterGrid from "./CharacterGrid";
 import CharacterPagination from "./CharacterPagination";
 import CharacterDrawer from "./CharacterDrawer";
@@ -27,6 +27,7 @@ interface CharacterListContainerProps {
     activePerson?: NonNullable<Person> | null;
     activeFilms?: NonNullable<Film>[];
     activeNotFound?: boolean;
+    allCharacters?: Person[];
 }
 
 export default function CharacterListContainer({
@@ -35,24 +36,48 @@ export default function CharacterListContainer({
     activePerson = null,
     activeFilms = [],
     activeNotFound = false,
+    allCharacters = [],
 }: CharacterListContainerProps) {
     const [data, setData] = useState(initialData);
     const [currentPage, setCurrentPage] = useState(1);
     const [cursorStack, setCursorStack] = useState<string[]>([]);
+    const [forwardCursors, setForwardCursors] = useState<Record<number, string>>(() => {
+        return initialData.allPeople?.pageInfo.endCursor 
+            ? { 1: initialData.allPeople.pageInfo.endCursor } 
+            : ({} as Record<number, string>);
+    });
     const [error, setError] = useState<string>();
     const [retryAction, setRetryAction] = useState<{ run: () => void } | null>(null);
     const [isPending, startTransition] = useTransition();
 
+    const [searchTerm, setSearchTerm] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [searchTerm]);
+
     const allPeople = data.allPeople;
-    const characters = allPeople?.people ?? [];
+    const paginatedCharacters = allPeople?.people ?? [];
     const totalCount = allPeople?.totalCount ?? 0;
     const pageInfo = allPeople?.pageInfo;
     const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
-    const handleNextPage = useCallback(() => {
-        if (!pageInfo?.endCursor) return;
+    const isSearching = debouncedSearch.trim().length > 0;
+    
+    let displayCharacters = paginatedCharacters;
+    if (isSearching) {
+        displayCharacters = allCharacters.filter((c) =>
+            c?.name?.toLowerCase().includes(debouncedSearch.toLowerCase().trim())
+        );
+    }
 
-        const cursorToUse = pageInfo.endCursor;
+    const handleNextPage = useCallback(() => {
+        const cursorToUse = forwardCursors[currentPage] || pageInfo?.endCursor;
+        if (!cursorToUse) return;
 
         const execute = () => {
             startTransition(async () => {
@@ -66,6 +91,12 @@ export default function CharacterListContainer({
                     if (newStartCursor) {
                         setCursorStack((prev) => [...prev, newStartCursor]);
                     }
+                    
+                    const newEndCursor = result.allPeople?.pageInfo.endCursor;
+                    if (newEndCursor) {
+                        setForwardCursors((prev) => ({ ...prev, [currentPage + 1]: newEndCursor }));
+                    }
+
                     setData(result);
                     setCurrentPage((prev) => prev + 1);
                     setRetryAction(null);
@@ -81,7 +112,7 @@ export default function CharacterListContainer({
         };
 
         execute();
-    }, [pageInfo?.endCursor, fetchCharacters]);
+    }, [currentPage, forwardCursors, pageInfo?.endCursor, fetchCharacters]);
 
     const handlePreviousPage = useCallback(() => {
         if (cursorStack.length === 0) return;
@@ -97,6 +128,15 @@ export default function CharacterListContainer({
                         last: PAGE_SIZE,
                         before: cursorToUse,
                     });
+
+                    const newEndCursor = result.allPeople?.pageInfo.endCursor;
+                    if (newEndCursor) {
+                        setForwardCursors((prev) => ({ 
+                            ...prev, 
+                            [currentPage - 1]: prev[currentPage - 1] || newEndCursor 
+                        }));
+                    }
+
                     setCursorStack(stack);
                     setData(result);
                     setCurrentPage((prev) => prev - 1);
@@ -113,38 +153,51 @@ export default function CharacterListContainer({
         };
 
         execute();
-    }, [cursorStack, fetchCharacters]);
+    }, [cursorStack, currentPage, fetchCharacters]);
 
     return (
         <Flex vertical gap={24} style={{ width: "100%" }}>
-            <Flex justify="space-between" align="baseline" wrap="wrap" gap={8}>
-                <Title level={2} style={{ margin: 0 }}>
-                    Personajes
-                </Title>
-                {totalCount > 0 && (
-                    <Text type="secondary">
-                        {totalCount} personajes en total
-                    </Text>
-                )}
+            <Flex justify="space-between" align="baseline" wrap="wrap" gap={16}>
+                <Flex align="baseline" gap={8} wrap="wrap">
+                    <Title level={2} style={{ margin: 0 }}>
+                        Personajes
+                    </Title>
+                    {totalCount > 0 && !isSearching && (
+                        <Text type="secondary">
+                            {totalCount} personajes en total
+                        </Text>
+                    )}
+                </Flex>
+
+                <Input
+                    placeholder="Buscar personaje..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    allowClear
+                    aria-label="Buscar personaje por nombre"
+                    style={{ width: "100%", maxWidth: 300 }}
+                />
             </Flex>
 
             <CharacterGrid
-                characters={characters}
+                characters={displayCharacters}
                 loading={isPending}
                 error={error}
                 pageSize={PAGE_SIZE}
                 onRetry={retryAction?.run}
             />
 
-            <CharacterPagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                hasNextPage={pageInfo?.hasNextPage ?? false}
-                hasPreviousPage={currentPage > 1}
-                loading={isPending}
-                onNextPage={handleNextPage}
-                onPreviousPage={handlePreviousPage}
-            />
+            {!isSearching && (
+                <CharacterPagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    hasNextPage={currentPage < totalPages}
+                    hasPreviousPage={currentPage > 1}
+                    loading={isPending}
+                    onNextPage={handleNextPage}
+                    onPreviousPage={handlePreviousPage}
+                />
+            )}
 
             <CharacterDrawer
                 person={activePerson}
