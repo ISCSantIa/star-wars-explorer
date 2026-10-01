@@ -1,0 +1,25 @@
+query GetCharacterDetail($id: ID!) {
+  person(id: $id) {
+    id
+    name
+  }
+
+  allFilms {
+    films {
+      id
+      title
+      director
+      characterConnection {
+        characters {
+          id
+        }
+      }
+      planetConnection {
+        planets {
+          id
+          name
+        }
+      }
+    }
+  }
+}
