@@ -1,7 +1,9 @@
-query GetCharacterDetail($id: ID!) {
-  person(id: $id) {
-    id
-    name
+query GetCharacterDetail {
+  allPeople(first: 100) {
+    people {
+      id
+      name
+    }
   }
 
   allFilms {
